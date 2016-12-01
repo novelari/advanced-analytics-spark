@@ -1,31 +1,36 @@
 import os
 
 os.environ["SPARK_HOME"] = "/Users/Karim/src/spark-2.0.0-bin-hadoop2.6"
-os.environ["PYSPARK_PYTHON"]="/usr/local/bin/python3.5"
+os.environ["PYSPARK_PYTHON"]="/usr/bin/python"
 
 import random
+from random import randrange
 from operator import itemgetter
 from pyspark import SparkContext
-from pyspark.mllib.util import MLUtils
-from pyspark.sql.functions import col
-from pyspark.mllib.recommendation import ALS, MatrixFactorizationModel, Rating
+from pyspark.mllib.recommendation import ALS, Rating
 
+
+def RepresentsInt(s):
+    try:
+        int(s)
+        return True
+    except ValueError:
+        return False
 
 def buildArtistByID(rawArtistData):
     return rawArtistData \
         .map(lambda x: x.split("\t", 1)) \
-        .filter(lambda artist: artist[0]) \
+        .filter(lambda artist: artist[0] and RepresentsInt(artist[0])) \
         .map(lambda artist: (int(artist[0]), artist[1].strip()))
-
 
 def buildArtistAlias(rawArtistAlias):
     return rawArtistAlias \
         .map(lambda line: line.split('\t')) \
-        .filter(lambda artist: artist[0]) \
+        .filter(lambda artist: artist[0] and RepresentsInt(artist[0])) \
         .map(lambda artist: (int(artist[0]), int(artist[1]))) \
         .collectAsMap()
 
-def preparation(self, rawUserArtistData, rawArtistData, rawArtistAlias):
+def preparation(rawUserArtistData, rawArtistData, rawArtistAlias):
     userIDStats = rawUserArtistData.map(lambda line: long(line.split(' ')[0])).stats()
     itemIDStats = rawUserArtistData.map(lambda line: long(line.split(' ')[1])).stats()
     print(userIDStats)
@@ -34,28 +39,26 @@ def preparation(self, rawUserArtistData, rawArtistData, rawArtistAlias):
     artistByID = buildArtistByID(rawArtistData)
     artistAlias = buildArtistAlias(rawArtistAlias)
 
-    (badID, goodID) = artistAlias.head
-    print(artistByID.lookup(badID) + " -> " + artistByID.lookup(goodID))
+    (badID, goodID) = artistAlias.items()[0]
+    print(''.join(artistByID.lookup(badID)) + " -> " + ''.join(artistByID.lookup(goodID)))
 
 def buildRatings(rawUserArtistData, bArtistAlias):
-    def getArtistID(line):
+    def getArtistRating(line):
         (userID, artistID, count) = map(lambda x: int(x), line.split(' '))
         try:
             finalArtistID = bArtistAlias.value[artistID]
         except KeyError:
             finalArtistID = artistID
         return Rating(userID, finalArtistID, count)
-
-    return rawUserArtistData.map(lambda line: getArtistID(line))
+    return rawUserArtistData.map(lambda line: getArtistRating(line))
 
 def model(sc, rawUserArtistData, rawArtistData, rawArtistAlias):
     bArtistAlias = sc.broadcast(buildArtistAlias(rawArtistAlias))
     trainData = buildRatings(rawUserArtistData, bArtistAlias).cache()
-
-    model = ALS.trainImplicit(trainData, 10, 5, 0.01, 1.0)
+    model = ALS.trainImplicit(ratings=trainData, rank=10, iterations=5, lambda_=0.01, alpha=1.0)
 
     trainData.unpersist()
-    print(model.userFeatures.mapValues(lambda v: ", ".join(v)).first())
+    print(model.userFeatures().mapValues(lambda v: ", ".join( map(lambda x: str(x),v) )).first())
 
     userID = 2093760
 
@@ -68,18 +71,18 @@ def model(sc, rawUserArtistData, rawArtistData, rawArtistAlias):
     #get specific user data
     rawArtistsForUser = rawUserArtistData\
         .map(lambda x: x.split(' '))\
-        .filter(lambda x: x[0] == userID)
+        .filter(lambda x: int(x[0]) == userID)
 
     #map artist id to int
     existingProducts = rawArtistsForUser.map(lambda x: int(x[1])).collect()
 
     artistByID = buildArtistByID(rawArtistData)
 
-    existingArtists = artistByID.filter(lambda artist: artist.id in existingProducts).collect()
+    existingArtists = artistByID.filter(lambda artist: artist[0] in existingProducts).collect()
     for val in existingArtists:
         print(val)
 
-    recommendedArtists = artistByID.filter(lambda artist: artist.id in recommendedProductIDs).collect()
+    recommendedArtists = artistByID.filter(lambda artist: artist[0] in recommendedProductIDs).collect()
     for val in recommendedArtists:
         print(val)
 
@@ -90,32 +93,34 @@ def areaUnderCurve(positiveData, bAllItemIDs, predictFunction):
     positivePredictions = predictFunction(positiveUserProducts).groupBy(lambda r: r.user)
 
     def f2(allItemIDs):
-        def f3(userID, posItemIDs):
+        def f3(rec):
             negative = []
             i = 0
-            while i<len(allItemIDs) and len(negative) < len(posItemIDs):
-                randomIdx = int(random.choice(range(0, len(allItemIDs))))
+            while i<len(allItemIDs) and len(negative) < len(rec[1]):
+                randomIdx = randrange(0,len(allItemIDs))
                 itemID = allItemIDs[randomIdx]
-                if(itemID not in posItemIDs):
+                if itemID not in rec[1]:
                     negative.append(itemID)
                 i+=1
-            map(lambda itemID: (userID,itemID),negative)
+            return map(lambda itemID: (rec[0],itemID),negative)
         return f3
 
 
     def f1(userIDAndPosItemIDs):
         allItemIDs = bAllItemIDs.value
-        map(f2(allItemIDs),userIDAndPosItemIDs)
+        return map(f2(allItemIDs),userIDAndPosItemIDs)
 
 
     negativeUserProducts = positiveUserProducts\
         .groupByKey()\
-        .mapParitions(f1)\
+        .mapPartitions(f1)\
         .flatMap(lambda t: t)
 
     negativePredictions = predictFunction(negativeUserProducts).groupBy(lambda x: x.user)
 
-    def f4(positiveRatings, negativeRatings):
+    def f4(ratings):
+        positiveRatings = ratings[0]
+        negativeRatings = ratings[1]
         correct = long(0)
         total = long(0)
         for positive in positiveRatings :
@@ -125,13 +130,12 @@ def areaUnderCurve(positiveData, bAllItemIDs, predictFunction):
                 total += 1
         return float(correct)/total
 
-    return positivePredictions.join(negativePredictions).map(f4).mean
-
+    return positivePredictions.join(negativePredictions).values().map(f4).mean()
 
 def predictMostListened(sc, train):
-    listenCount = train.map(lambda r: (r.product, r.rating)).reduceByKey(lambda a,b: a + b).collectAsMap()
-    bListenCount = sc.broadcast(listenCount)
     def predict(allData):
+        listenCount = train.map(lambda r: (r.product, r.rating)).reduceByKey(lambda a, b: a + b).collectAsMap()
+        bListenCount = sc.broadcast(listenCount)
         def getListenCount(bListenCount, product):
             try:
                 count = bListenCount.value[product]
@@ -140,7 +144,6 @@ def predictMostListened(sc, train):
             return count
         allData.map(lambda data: Rating(data[0], data[1], getListenCount(bListenCount, data[1]) ))
     return predict
-
 
 def evaluate(sc, rawUserArtistData, rawArtistAlias):
     bArtistAlias = sc.broadcast(buildArtistAlias(rawArtistAlias))
@@ -173,7 +176,8 @@ def evaluate(sc, rawUserArtistData, rawArtistAlias):
 def recommend(sc, rawUserArtistData, rawArtistData, rawArtistAlias):
     bArtistAlias = sc.broadcast(buildArtistAlias(rawArtistAlias))
     allData = buildRatings(rawUserArtistData, bArtistAlias).cache()
-    model = ALS.trainImplicit(allData, 50, 10, 1.0, 40.0)
+    model = ALS.trainImplicit(ratings=allData, rank=10, iterations=5, lambda_=0.01, alpha=1.0)
+
     allData.unpersist()
 
     userID = 2093760
@@ -182,29 +186,29 @@ def recommend(sc, rawUserArtistData, rawArtistData, rawArtistAlias):
 
     artistByID = buildArtistByID(rawArtistData)
 
-    recommendedArtists = artistByID.filter(lambda artist: artist.id in recommendedProductIDs).collect()
+    recommendedArtists = artistByID.filter(lambda artist: artist[0] in recommendedProductIDs).collect()
     for val in recommendedArtists:
         print(val)
 
     someUsers = allData.map(lambda item: item.user).distinct().take(100)
-    someRecommendations = map(lambda userId: model.recommendProducts(id, 5),someUsers)
-    formattedRecommendations = map(lambda recs: str(recs.head.user) + " -> " + ", ".join( map(lambda x: x.product) ),someRecommendations)
+    someRecommendations = map(lambda userId: model.recommendProducts(userId, 5),someUsers)
+    formattedRecommendations = map(lambda recs: str(recs[0].user) + " -> " + ", ".join( map(lambda x: str(x.product), recs) ),someRecommendations)
     for val in formattedRecommendations:
         print(val)
 
     unpersist(model)
 
 def unpersist(model):
-    model.userFeatures.unpersist()
-    model.productFeatures.unpersist()
+    model.userFeatures().unpersist()
+    model.productFeatures().unpersist()
 
 if __name__ == "__main__":
     sc = SparkContext(appName="PythonWordCount")
 
     base = "file:///Users/Karim/Downloads/profiledata_06-May-2005/"
-    rawUserArtistData = sc.textFile(base + "user_artist_data.txt")
-    rawArtistData = sc.textFile(base + "artist_data.txt")
-    rawArtistAlias = sc.textFile(base + "artist_alias.txt")
+    rawUserArtistData = sc.textFile(base + "user_artist_data.txt").cache()
+    rawArtistData = sc.textFile(base + "artist_data.txt").cache()
+    rawArtistAlias = sc.textFile(base + "artist_alias.txt").cache()
 
     preparation(rawUserArtistData, rawArtistData, rawArtistAlias)
     model(sc, rawUserArtistData, rawArtistData, rawArtistAlias)
