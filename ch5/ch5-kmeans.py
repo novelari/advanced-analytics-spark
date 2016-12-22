@@ -223,7 +223,7 @@ def anomalies(rawData):
 
 
 if __name__ == "__main__":
-    sc = SparkContext(appName="PythonWordCount")
+    sc = SparkContext(appName="kmeans")
 
     rawData = sc.textFile("file:///Users/Karim/Downloads/kddcup.data_10_percent")
     clusteringTake0(rawData)

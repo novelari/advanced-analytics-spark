@@ -113,7 +113,7 @@ def evaluateForest(rawData):
     cvData.unpersist()
 
 if __name__ == "__main__":
-    sc = SparkContext(appName="PythonWordCount")
+    sc = SparkContext(appName="rdf")
 
     rawData = sc.textFile("file:///Users/Karim/Downloads/covtype.data")
 

@@ -14,7 +14,7 @@ def preprocessing(sampleSize, numTerms, sc):
 
 
 if __name__ == "__main__":
-    sc = SparkContext(appName="PythonWordCount")
+    sc = SparkContext(appName="LSA")
     sqlContext = SQLContext(sc)
 
     k = 100

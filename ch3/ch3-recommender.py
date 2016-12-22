@@ -203,7 +203,7 @@ def unpersist(model):
     model.productFeatures().unpersist()
 
 if __name__ == "__main__":
-    sc = SparkContext(appName="PythonWordCount")
+    sc = SparkContext(appName="recommender")
 
     base = "file:///Users/Karim/Downloads/profiledata_06-May-2005/"
     rawUserArtistData = sc.textFile(base + "user_artist_data.txt").cache()
