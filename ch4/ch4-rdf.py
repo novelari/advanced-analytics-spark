@@ -117,12 +117,12 @@ if __name__ == "__main__":
 
     rawData = sc.textFile("file:///Users/Karim/Downloads/covtype.data")
 
-    def preprocessing(line):
-        values = map(lambda x: float(x), line.split(","))
-        last_el = values.pop()
-        featureVector = Vectors.dense(values)
-        label = last_el - 1
-        return LabeledPoint(label, featureVector)
+def preprocessing(line):
+    values = map(lambda x: float(x), line.split(","))
+    last_el = values.pop()
+    featureVector = Vectors.dense(values)
+    label = last_el - 1
+    return LabeledPoint(label, featureVector)
 
     data = rawData.map(preprocessing)
 
