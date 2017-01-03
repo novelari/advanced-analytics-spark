@@ -59,10 +59,7 @@ def samplePathLengths(graph, fraction= 0.02):
     #missing pregel in python
 
 
-if __name__ == "__main__":
-    sc = SparkContext(appName="Graph")
-    sc.setCheckpointDir("./checkpoint")
-    sqlContext = SQLContext(sc)
+
 
     medlineRaw = loadMedline(sqlContext, "/Users/Karim/Downloads/medline_data/medsamp2016a.xml")
     medline = medlineRaw.select("MeshHeadingList.MeshHeading.DescriptorName").rdd.map(majorTopics).cache()
