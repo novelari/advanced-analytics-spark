@@ -3,14 +3,12 @@ import os
 os.environ["SPARK_HOME"] = "/Users/Karim/src/spark-2.0.0-bin-hadoop2.6"
 os.environ["PYSPARK_PYTHON"]="/usr/bin/python"
 
-import random
 from random import randrange
 from operator import itemgetter
 from pyspark import SparkContext
 from pyspark.mllib.recommendation import ALS, Rating
 
-
-def RepresentsInt(s):
+def representsInt(s):
     try:
         int(s)
         return True
@@ -20,13 +18,13 @@ def RepresentsInt(s):
 def buildArtistByID(rawArtistData):
     return rawArtistData \
         .map(lambda x: x.split("\t", 1)) \
-        .filter(lambda artist: artist[0] and RepresentsInt(artist[0])) \
+        .filter(lambda artist: artist[0] and representsInt(artist[0])) \
         .map(lambda artist: (int(artist[0]), artist[1].strip()))
 
 def buildArtistAlias(rawArtistAlias):
     return rawArtistAlias \
         .map(lambda line: line.split('\t')) \
-        .filter(lambda artist: artist[0] and RepresentsInt(artist[0])) \
+        .filter(lambda artist: artist[0] and representsInt(artist[0])) \
         .map(lambda artist: (int(artist[0]), int(artist[1]))) \
         .collectAsMap()
 
@@ -67,7 +65,6 @@ def model(sc, rawUserArtistData, rawArtistData, rawArtistAlias):
         print(val)
     recommendedProductIDs = map(lambda rec: rec.product, recommendations)
 
-
     #get specific user data
     rawArtistsForUser = rawUserArtistData\
         .map(lambda x: x.split(' '))\
@@ -105,11 +102,9 @@ def areaUnderCurve(positiveData, bAllItemIDs, predictFunction):
             return map(lambda itemID: (rec[0],itemID),negative)
         return f3
 
-
     def f1(userIDAndPosItemIDs):
         allItemIDs = bAllItemIDs.value
         return map(f2(allItemIDs),userIDAndPosItemIDs)
-
 
     negativeUserProducts = positiveUserProducts\
         .groupByKey()\

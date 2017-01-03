@@ -27,7 +27,7 @@ def hashId(string):
     return m.hexdigest()
 
 def sortedConnectedComponents(connectedComponents):
-    componentCounts = connectedComponentGraph.rdd.map(lambda x: x[0]).countByValue().items()
+    componentCounts = connectedComponents.rdd.map(lambda x: x[0]).countByValue().items()
     return sorted(componentCounts, key=itemgetter(1), reverse=True)
 
 def topNamesAndDegrees(degrees, topicGraph):
@@ -59,7 +59,10 @@ def samplePathLengths(graph, fraction= 0.02):
     #missing pregel in python
 
 
-
+if __name__ == "__main__":
+    sc = SparkContext(appName="Graph")
+    sc.setCheckpointDir("./checkpoint")
+    sqlContext = SQLContext(sc)
 
     medlineRaw = loadMedline(sqlContext, "/Users/Karim/Downloads/medline_data/medsamp2016a.xml")
     medline = medlineRaw.select("MeshHeadingList.MeshHeading.DescriptorName").rdd.map(majorTopics).cache()

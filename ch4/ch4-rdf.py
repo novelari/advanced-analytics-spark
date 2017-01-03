@@ -10,7 +10,6 @@ from pyspark.mllib.linalg import Vectors
 from pyspark.mllib.evaluation import MulticlassMetrics
 from pyspark.mllib.tree import RandomForest, DecisionTree
 
-
 def simpleDecisionTree(trainData, cvData):
     model = DecisionTree.trainClassifier(trainData,numClasses=7, categoricalFeaturesInfo={}, impurity="gini", maxDepth=4, maxBins=100)
     metrics = getMetrics(model, cvData.collect())
@@ -117,12 +116,12 @@ if __name__ == "__main__":
 
     rawData = sc.textFile("file:///Users/Karim/Downloads/covtype.data")
 
-def preprocessing(line):
-    values = map(lambda x: float(x), line.split(","))
-    last_el = values.pop()
-    featureVector = Vectors.dense(values)
-    label = last_el - 1
-    return LabeledPoint(label, featureVector)
+    def preprocessing(line):
+        values = map(lambda x: float(x), line.split(","))
+        last_el = values.pop()
+        featureVector = Vectors.dense(values)
+        label = last_el - 1
+        return LabeledPoint(label, featureVector)
 
     data = rawData.map(preprocessing)
 

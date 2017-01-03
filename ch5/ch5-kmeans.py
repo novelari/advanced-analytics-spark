@@ -1,5 +1,6 @@
 import os
 import math
+
 os.environ["SPARK_HOME"] = "/Users/Karim/src/spark-2.0.0-bin-hadoop2.6"
 os.environ["PYSPARK_PYTHON"] = "/usr/bin/python"
 
@@ -220,7 +221,6 @@ def anomalies(rawData):
 
     for val in anomalies.take(10):
         print(val)
-
 
 if __name__ == "__main__":
     sc = SparkContext(appName="kmeans")
