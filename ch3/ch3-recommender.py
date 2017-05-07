@@ -171,7 +171,7 @@ def evaluate(sc, rawUserArtistData, rawArtistAlias):
 def recommend(sc, rawUserArtistData, rawArtistData, rawArtistAlias):
     bArtistAlias = sc.broadcast(buildArtistAlias(rawArtistAlias))
     allData = buildRatings(rawUserArtistData, bArtistAlias).cache()
-    model = ALS.trainImplicit(ratings=allData, rank=10, iterations=5, lambda_=0.01, alpha=1.0)
+    model = ALS.trainImplicit(ratings=allData, rank=50, iterations=10, lambda_=1.0, alpha=40.0)
 
     allData.unpersist()
 
