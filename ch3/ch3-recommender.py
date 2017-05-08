@@ -1,7 +1,11 @@
 import os
+import sys
 
-os.environ["SPARK_HOME"] = "/Users/Karim/src/spark-2.0.0-bin-hadoop2.6"
+os.environ["SPARK_HOME"] = "/opt/spark"#"/Users/Karim/src/spark-2.0.0-bin-hadoop2.6"
+os.environ["SPARK_DRIVER_MEMORY"] = "6g"
 os.environ["PYSPARK_PYTHON"]="/usr/bin/python"
+#sys.path.append("/opt/spark/python/")
+#sys.path.append("/opt/spark/python/lib/py4j-0.9-src.zip")
 
 from random import randrange
 from operator import itemgetter
@@ -16,12 +20,20 @@ def representsInt(s):
         return False
 
 def buildArtistByID(rawArtistData):
+    '''
+        - convert ther rawArtistData into tuples of (artistID, artistName)
+        - filter all bad lines
+    '''
     return rawArtistData \
         .map(lambda x: x.split("\t", 1)) \
         .filter(lambda artist: artist[0] and representsInt(artist[0])) \
         .map(lambda artist: (int(artist[0]), artist[1].strip()))
 
 def buildArtistAlias(rawArtistAlias):
+    '''
+        - convert ther rawArtistData into tuples of (aliasID, artistID)
+        - filter all bad lines
+    '''
     return rawArtistAlias \
         .map(lambda line: line.split('\t')) \
         .filter(lambda artist: artist[0] and representsInt(artist[0])) \
@@ -48,6 +60,7 @@ def buildRatings(rawUserArtistData, bArtistAlias):
         except KeyError:
             finalArtistID = artistID
         return Rating(userID, finalArtistID, count)
+
     return rawUserArtistData.map(lambda line: getArtistRating(line))
 
 def model(sc, rawUserArtistData, rawArtistData, rawArtistAlias):
@@ -127,6 +140,59 @@ def areaUnderCurve(positiveData, bAllItemIDs, predictFunction):
 
     return positivePredictions.join(negativePredictions).values().map(f4).mean()
 
+
+def areaUnderCurve2(positiveData, bAllItemIDs, predictFunction):
+
+    #
+    #
+    # def (all, a2):
+    #     a2 has n items
+    #     all has m >>> n items and a2 included in all
+    #     return randome a1, of n random elements no in a2 from all
+    #
+
+    def pos2neg(rec):
+        allItemIDs = bAllItemIDs.value
+        userID = rec[0]
+        positiveItems = rec[1]
+        negativeItems = []
+        i = 0
+        while i<len(allItemIDs) and len(negativeItems) < len(positiveItems):
+            randomIdx = randrange(0,len(allItemIDs))
+            itemID = allItemIDs[randomIdx]
+            if itemID not in positiveItems:
+                negativeItems.append(itemID)
+            i+=1
+
+        return (userID, negativeItems)
+
+    positiveUserProducts = positiveData.map(lambda r: (r.user, r.product))
+    groupedPositiveUserProducts = positiveUserProducts.groupByKey()
+    groupedNegativeUserProducts = groupedPositiveUserProducts.map(lambda pos :pos2neg(pos))
+    negativeUserProducts = groupedNegativeUserProducts.flatMapValues(lambda x:x);
+
+
+    positivePredictions = predictFunction(positiveUserProducts).groupBy(lambda r: r.user)
+    negativePredictions = predictFunction(negativeUserProducts).groupBy(lambda x: x.user)
+
+    posAndNegRatingsJoined =  positivePredictions.join(negativePredictions).values()
+
+    def probabilityOfTruePositive(ratings):
+        positiveRatings = ratings[0]
+        negativeRatings = ratings[1]
+        correct = long(0)
+        total = long(0)
+
+        #correct positive must be higher thatn any negative.
+        for positive in positiveRatings :
+            for negative in negativeRatings :
+                if(positive.rating > negative.rating):
+                    correct += 1
+                total += 1
+        return float(correct)/total
+
+    return posAndNegRatingsJoined.map(probabilityOfTruePositive).mean()
+
 def predictMostListened(sc, train):
     def predict(allData):
         listenCount = train.map(lambda r: (r.product, r.rating)).reduceByKey(lambda a, b: a + b).collectAsMap()
@@ -148,22 +214,22 @@ def evaluate(sc, rawUserArtistData, rawArtistAlias):
     cvData.cache()
     allItemIDs = allData.map(lambda item: item.product).distinct().collect()
     bAllItemIDs = sc.broadcast(allItemIDs)
-    mostListenedAUC = areaUnderCurve(cvData, bAllItemIDs, predictMostListened(sc, trainData))
+    mostListenedAUC = areaUnderCurve2(cvData, bAllItemIDs, predictMostListened(sc, trainData))
     print(mostListenedAUC)
 
-    evaluations = []
-
-    for rank in [10,50]:
-        for lambda_val in [1.0, 0.001]:
-            for alpha in [1.0, 40.0]:
-                model = ALS.trainImplicit(trainData, rank, 10, lambda_val, alpha)
-                auc = areaUnderCurve(cvData, bAllItemIDs, model.predict)
-                unpersist(model)
-                evaluations.append(((rank, lambda_val, alpha), auc))
-
-    sorted(evaluations, key=itemgetter(1), reverse=True)
-    for val in evaluations:
-        print(val)
+    # evaluations = []
+    #
+    # for rank in [10,50]:
+    #     for lambda_val in [1.0, 0.001]:
+    #         for alpha in [1.0, 40.0]:
+    #             model = ALS.trainImplicit(trainData, rank, 10, lambda_val, alpha)
+    #             auc = areaUnderCurve(cvData, bAllItemIDs, model.predict)
+    #             unpersist(model)
+    #             evaluations.append(((rank, lambda_val, alpha), auc))
+    #
+    # sorted(evaluations, key=itemgetter(1), reverse=True)
+    # for val in evaluations:
+    #     print(val)
 
     trainData.unpersist()
     cvData.unpersist()
@@ -198,14 +264,22 @@ def unpersist(model):
     model.productFeatures().unpersist()
 
 if __name__ == "__main__":
-    sc = SparkContext(appName="recommender")
+    from pyspark import SparkConf;
+    conf = SparkConf();
+    conf.set("spark.driver.memory", "6g")
+    conf.set("spark.executer.memory", "6g")
+    sc = SparkContext(appName="recommender", conf =conf)
 
-    base = "file:///Users/Karim/Downloads/profiledata_06-May-2005/"
+
+    base = "/Users/sameh/Dropbox/Docs/NU/Courses/2016-SPRING_CIT-691-Bigdata-II/cit652/AdvAns-data/ch03/data/"
     rawUserArtistData = sc.textFile(base + "user_artist_data.txt").cache()
     rawArtistData = sc.textFile(base + "artist_data.txt").cache()
     rawArtistAlias = sc.textFile(base + "artist_alias.txt").cache()
 
-    preparation(rawUserArtistData, rawArtistData, rawArtistAlias)
+    #preparation(rawUserArtistData, rawArtistData, rawArtistAlias)
+
     model(sc, rawUserArtistData, rawArtistData, rawArtistAlias)
-    evaluate(sc, rawUserArtistData, rawArtistAlias)
-    recommend(sc, rawUserArtistData, rawArtistData, rawArtistAlias)
+
+    #evaluate(sc, rawUserArtistData, rawArtistAlias)
+
+    #recommend(sc, rawUserArtistData, rawArtistData, rawArtistAlias)
