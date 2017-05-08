@@ -12,7 +12,7 @@ from pyspark.mllib.tree import RandomForest, DecisionTree
 
 def simpleDecisionTree(trainData, cvData):
     model = DecisionTree.trainClassifier(trainData,numClasses=7, categoricalFeaturesInfo={}, impurity="gini", maxDepth=4, maxBins=100)
-    metrics = getMetrics(model, cvData.collect())
+    metrics = getMetrics(model, cvData)
 
     print(metrics.confusionMatrix())
     print(metrics.precision())
@@ -20,9 +20,13 @@ def simpleDecisionTree(trainData, cvData):
     for category in range(0,7):
         print((metrics.precision(category), metrics.recall(category)))
 
+
 def getMetrics(model, data):
-    predictionsAndLabels = map(lambda example: (model.predict(example.features), example.label), data)
-    return MulticlassMetrics(sc.parallelize(predictionsAndLabels))
+    labels = data.map(lambda d: d.label)
+    features = data.map(lambda d: d.features)
+    predictions = model.predict(features)
+    predictionsAndLabels = predictions.zip(labels)
+    return MulticlassMetrics(predictionsAndLabels)
 
 def randomClassifier(trainData, cvData):
     trainPriorProbabilities = classProbabilities(trainData)
@@ -59,7 +63,7 @@ def unencodeOneHot(line):
     values = map(lambda x: float(x), line.split(","))
     wilderness = float(values[10:14].index(1.0))
     soil = float(values[14:54].index(1.0))
-    featureVector = Vectors.dense(values[0:10] + wilderness + soil)
+    featureVector = Vectors.dense(values[0:10] + [wilderness] + [soil])
     label = values.pop() - 1
     return LabeledPoint(label, featureVector)
 
@@ -100,9 +104,9 @@ def evaluateForest(rawData):
 
     forest = RandomForest.trainClassifier(trainData, numClasses=7, categoricalFeaturesInfo={10: 4, 11: 40}, numTrees=20, featureSubsetStrategy="auto", impurity="entropy", maxDepth=30, maxBins=300)
 
-    predictionsAndLabels = map(lambda example: (forest.predict(example.features), example.label), cvData)
+    metrics = getMetrics(forest, cvData)
 
-    print(MulticlassMetrics(sc.parallelize(predictionsAndLabels)).precision())
+    print(metrics.precision())
 
     input = "2709,125,28,67,23,3224,253,207,61,6094,0,29"
     vector = Vectors.dense(map(lambda x: float(x), input.split(",")))
